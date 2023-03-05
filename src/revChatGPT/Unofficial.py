@@ -2,7 +2,10 @@ import json
 import logging
 import re
 import uuid
+from os import getenv
+from os.path import exists
 from time import sleep
+from typing import Any, LiteralString
 
 import tls_client
 import undetected_chromedriver as uc
@@ -18,7 +21,7 @@ BASE_URL = "https://chat.openai.com/"
 
 
 class Chrome(uc.Chrome):
-    def __del__(self):
+    def __del__(self) -> None:
         self.quit()
 
 
@@ -35,7 +38,7 @@ class Chatbot:
             client_identifier="chrome_108",
         )
         if "proxy" in config:
-            if type(config["proxy"]) != str:
+            if isinstance(config["proxy"], str):
                 raise Exception("Proxy must be a string!")
             proxies = {
                 "http": config["proxy"],
@@ -43,7 +46,7 @@ class Chatbot:
             }
             self.session.proxies.update(proxies)
         if "verbose" in config:
-            if type(config["verbose"]) != bool:
+            if isinstance(config["verbose"], bool):
                 raise Exception("Verbose must be a boolean!")
             self.verbose = config["verbose"]
         else:
@@ -59,13 +62,13 @@ class Chatbot:
         self.WARNING = "\033[93m"
         self.ENDCOLOR = "\033[0m"
         if "email" in config and "password" in config:
-            if type(config["email"]) != str:
+            if isinstance(config["email"], str):
                 raise Exception("Email must be a string!")
-            if type(config["password"]) != str:
+            if isinstance(config["password"], str):
                 raise Exception("Password must be a string!")
             self.email = config["email"]
             self.password = config["password"]
-            if "isMicrosoftLogin" in config and config["isMicrosoftLogin"] == True:
+            if "isMicrosoftLogin" in config and config["isMicrosoftLogin"]:
                 self.isMicrosoftLogin = True
                 self.__microsoft_login()
             else:
@@ -74,7 +77,7 @@ class Chatbot:
             if no_refresh:
                 self.__get_cf_cookies()
                 return
-            if type(config["session_token"]) != str:
+            if isinstance(config["session_token"], str):
                 raise Exception("Session token must be a string!")
             self.session_token = config["session_token"]
             self.session.cookies.set(
@@ -105,7 +108,7 @@ class Chatbot:
         parent_id=None,
         gen_title=False,
         session_token=None,
-    ):
+    ) -> dict[str, Any] | None:
         """
         Ask a question to the chatbot
         :param prompt: String
@@ -123,9 +126,9 @@ class Chatbot:
             self.config["session_token"] = session_token
         self.__retry_refresh()
         self.__map_conversations()
-        if conversation_id == None:
+        if conversation_id is None:
             conversation_id = self.conversation_id
-        if parent_id == None:
+        if parent_id is None:
             parent_id = (
                 self.parent_id
                 if conversation_id == self.conversation_id
@@ -152,7 +155,7 @@ class Chatbot:
         )  # for rollback
         self.parent_id_prev_queue.append(data["parent_message_id"])
         response = self.session.post(
-            url=BASE_URL + "backend-api/conversation",
+            url=f"{BASE_URL}backend-api/conversation",
             data=json.dumps(data),
             timeout_seconds=180,
         )
@@ -169,32 +172,30 @@ class Chatbot:
             except Exception as exc:
                 print("Incorrect response from OpenAI API")
                 raise Exception("Incorrect response from OpenAI API") from exc
-            # Check if it is JSON
-            if response.startswith("{"):
-                response = json.loads(response)
-                self.parent_id = response["message"]["id"]
-                self.conversation_id = response["conversation_id"]
-                message = response["message"]["content"]["parts"][0]
-                res = {
-                    "message": message,
-                    "conversation_id": self.conversation_id,
-                    "parent_id": self.parent_id,
-                }
-                if gen_title and new_conv:
-                    try:
-                        title = self.__gen_title(
-                            self.conversation_id,
-                            self.parent_id,
-                        )["title"]
-                    except Exception as exc:
-                        split = prompt.split(" ")
-                        title = " ".join(split[:3]) + ("..." if len(split) > 3 else "")
-                    res["title"] = title
-                return res
-            else:
+            if not response.startswith("{"):
                 return None
+            response = json.loads(response)
+            self.parent_id = response["message"]["id"]
+            self.conversation_id = response["conversation_id"]
+            message = response["message"]["content"]["parts"][0]
+            res = {
+                "message": message,
+                "conversation_id": self.conversation_id,
+                "parent_id": self.parent_id,
+            }
+            if gen_title and new_conv:
+                try:
+                    title = self.__gen_title(
+                        self.conversation_id,
+                        self.parent_id,
+                    )["title"]
+                except Exception as exc:
+                    split = prompt.split(" ")
+                    title = " ".join(split[:3]) + ("..." if len(split) > 3 else "")
+                res["title"] = title
+            return res
 
-    def __check_response(self, response):
+    def __check_response(self, response) -> None:
         if response.status_code != 200:
             print(response.text)
             raise Exception("Response code error: ", response.status_code)
@@ -205,28 +206,27 @@ class Chatbot:
         :param offset: Integer
         :param limit: Integer
         """
-        url = BASE_URL + f"backend-api/conversations?offset={offset}&limit={limit}"
+        url = f"{BASE_URL}backend-api/conversations?offset={offset}&limit={limit}"
         response = self.session.get(url)
         self.__check_response(response)
         data = json.loads(response.text)
         return data["items"]
 
-    def get_msg_history(self, id):
+    def get_msg_history(self, id: str):
         """
         Get message history
         :param id: UUID of conversation
         """
-        url = BASE_URL + f"backend-api/conversation/{id}"
+        url = f"{BASE_URL}backend-api/conversation/{id}"
         response = self.session.get(url)
         self.__check_response(response)
-        data = json.loads(response.text)
-        return data
+        return json.loads(response.text)
 
-    def __gen_title(self, id, message_id):
+    def __gen_title(self, id: str, message_id: str):
         """
         Generate title for conversation
         """
-        url = BASE_URL + f"backend-api/conversation/gen_title/{id}"
+        url = f"{BASE_URL}backend-api/conversation/gen_title/{id}"
         response = self.session.post(
             url,
             data=json.dumps(
@@ -242,40 +242,40 @@ class Chatbot:
         data = json.loads(response.text)
         return data
 
-    def change_title(self, id, title):
+    def change_title(self, id: str, title: str) -> None:
         """
         Change title of conversation
         :param id: UUID of conversation
         :param title: String
         """
-        url = BASE_URL + f"backend-api/conversation/{id}"
+        url = f"{BASE_URL}backend-api/conversation/{id}"
         response = self.session.patch(url, data=f'{{"title": "{title}"}}')
         self.__check_response(response)
 
-    def delete_conversation(self, id):
+    def delete_conversation(self, id: str) -> None:
         """
         Delete conversation
         :param id: UUID of conversation
         """
-        url = BASE_URL + f"backend-api/conversation/{id}"
+        url = f"{BASE_URL}backend-api/conversation/{id}"
         response = self.session.patch(url, data='{"is_visible": false}')
         self.__check_response(response)
 
-    def clear_conversations(self):
+    def clear_conversations(self) -> None:
         """
         Delete all conversations
         """
-        url = BASE_URL + "backend-api/conversations"
+        url = f"{BASE_URL}backend-api/conversations"
         response = self.session.patch(url, data='{"is_visible": false}')
         self.__check_response(response)
 
-    def __map_conversations(self):
+    def __map_conversations(self) -> None:
         conversations = self.get_conversations()
         histories = [self.get_msg_history(x["id"]) for x in conversations]
         for x, y in zip(conversations, histories):
             self.conversation_mapping[x["id"]] = y["current_node"]
 
-    def __refresh_session(self, session_token=None):
+    def __refresh_session(self, session_token=None) -> None:
         if session_token:
             self.session.cookies.set(
                 "__Secure-next-auth.session-token",
@@ -283,7 +283,7 @@ class Chatbot:
             )
             self.session_token = session_token
             self.config["session_token"] = session_token
-        url = BASE_URL + "api/auth/session"
+        url = f"{BASE_URL}api/auth/session"
         response = self.session.get(url, timeout_seconds=180)
         if response.status_code == 403:
             self.__get_cf_cookies()
@@ -293,7 +293,7 @@ class Chatbot:
                 raise Exception(
                     f"Failed to refresh session! Error: {response.json()['error']}",
                 )
-            elif (
+            if (
                 response.status_code != 200
                 or response.json() == {}
                 or "accessToken" not in response.json()
@@ -301,12 +301,11 @@ class Chatbot:
                 raise Exception(
                     f"Response code: {response.status_code} \n Response: {response.text}",
                 )
-            else:
-                self.session.headers.update(
-                    {
-                        "Authorization": "Bearer " + response.json()["accessToken"],
-                    },
-                )
+            self.session.headers.update(
+                {
+                    "Authorization": "Bearer " + response.json()["accessToken"],
+                },
+            )
             self.session_token = self.session.cookies._find(
                 "__Secure-next-auth.session-token",
             )
@@ -365,7 +364,6 @@ class Chatbot:
                 sleep(5)
             self.__refresh_headers(
                 cf_clearance=self.cf_clearance,
-                puid_cookie=self.puid_cookie,
                 user_agent=self.user_agent,
             )
             # Wait for the login button to appear
@@ -453,7 +451,7 @@ class Chatbot:
             )
             while not self.session_cookie_found:
                 sleep(5)
-            print(self.GREEN + "Login successful." + self.ENDCOLOR)
+            print(f"{self.GREEN}Login successful.{self.ENDCOLOR}")
         finally:
             # Close the browser
             if driver is not None:
@@ -498,7 +496,6 @@ class Chatbot:
                 sleep(5)
             self.__refresh_headers(
                 cf_clearance=self.cf_clearance,
-                puid_cookie=self.puid_cookie,
                 user_agent=self.user_agent,
             )
             # Wait for the login button to appear
@@ -560,9 +557,9 @@ class Chatbot:
                     (By.XPATH, "//textarea"),
                 ),
             )
-            while not self.session_cookie_found or not self.puid_cookie_found:
+            while not self.session_cookie_found:
                 sleep(5)
-            print(self.GREEN + "Login successful." + self.ENDCOLOR)
+            print(f"{self.GREEN}Login successful.{self.ENDCOLOR}")
         finally:
             if driver is not None:
                 # Close the browser
@@ -627,93 +624,90 @@ class Chatbot:
                 del driver
             self.__refresh_headers(
                 cf_clearance=self.cf_clearance,
-                puid_cookie=self.puid_cookie,
                 user_agent=self.user_agent,
             )
 
-    def __detect_cookies(self, message):
-        if "params" in message:
-            if "headers" in message["params"]:
-                if "set-cookie" in message["params"]["headers"]:
-                    # Use regex to get the cookie for cf_clearance=*;
-                    cf_clearance_cookie = re.search(
-                        "cf_clearance=.*?;",
-                        message["params"]["headers"]["set-cookie"],
+    def __detect_cookies(self, message: dict) -> None:
+        if "params" not in message:
+            return
+        if (
+            "headers" in message["params"]
+            and "set-cookie" in message["params"]["headers"]
+        ):
+            # Use regex to get the cookie for cf_clearance=*;
+            cf_clearance_cookie = re.search(
+                "cf_clearance=.*?;",
+                message["params"]["headers"]["set-cookie"],
+            )
+            # puid_cookie = re.search(
+            #     "_puid=.*?;",
+            #     message["params"]["headers"]["set-cookie"],
+            # )
+            session_cookie = re.search(
+                "__Secure-next-auth.session-token=.*?;",
+                message["params"]["headers"]["set-cookie"],
+            )
+            if cf_clearance_cookie and not self.cf_cookie_found:
+                print("Found Cloudflare Cookie!")
+                # remove the semicolon and 'cf_clearance=' from the string
+                raw_cf_cookie = cf_clearance_cookie[0]
+                self.cf_clearance = raw_cf_cookie.split("=")[1][:-1]
+                if self.verbose:
+                    print(
+                        f"{self.GREEN}Cloudflare Cookie: {self.ENDCOLOR}{self.cf_clearance}",
                     )
-                    puid_cookie = re.search(
-                        "_puid=.*?;",
-                        message["params"]["headers"]["set-cookie"],
+                self.cf_cookie_found = True
+                # if puid_cookie and not self.puid_cookie_found:
+                #     raw_puid_cookie = puid_cookie.group(0)
+                #     self.puid_cookie = raw_puid_cookie.split("=")[1][:-1]
+                #     self.session.cookies.set(
+                #         "_puid",
+                #         self.puid_cookie,
+                #     )
+                #     if self.verbose:
+                #         print(
+                #             self.GREEN
+                #             + "puid Cookie: "
+                #             + self.ENDCOLOR
+                #             + self.puid_cookie,
+                #         )
+                #     self.puid_cookie_found = True
+            if session_cookie and not self.session_cookie_found:
+                print("Found Session Token!")
+                # remove the semicolon and '__Secure-next-auth.session-token=' from the string
+                raw_session_cookie = session_cookie[0]
+                self.session_token = raw_session_cookie.split("=")[1][:-1]
+                self.session.cookies.set(
+                    "__Secure-next-auth.session-token",
+                    self.session_token,
+                )
+                if self.verbose:
+                    print(
+                        f"{self.GREEN}Session Token: {self.ENDCOLOR}{self.session_token}",
                     )
-                    session_cookie = re.search(
-                        "__Secure-next-auth.session-token=.*?;",
-                        message["params"]["headers"]["set-cookie"],
-                    )
-                    if cf_clearance_cookie and not self.cf_cookie_found:
-                        print("Found Cloudflare Cookie!")
-                        # remove the semicolon and 'cf_clearance=' from the string
-                        raw_cf_cookie = cf_clearance_cookie.group(0)
-                        self.cf_clearance = raw_cf_cookie.split("=")[1][:-1]
-                        if self.verbose:
-                            print(
-                                self.GREEN
-                                + "Cloudflare Cookie: "
-                                + self.ENDCOLOR
-                                + self.cf_clearance,
-                            )
-                        self.cf_cookie_found = True
-                    if puid_cookie and not self.puid_cookie_found:
-                        raw_puid_cookie = puid_cookie.group(0)
-                        self.puid_cookie = raw_puid_cookie.split("=")[1][:-1]
-                        self.session.cookies.set(
-                            "_puid",
-                            self.puid_cookie,
-                        )
-                        if self.verbose:
-                            print(
-                                self.GREEN
-                                + "puid Cookie: "
-                                + self.ENDCOLOR
-                                + self.puid_cookie,
-                            )
-                        self.puid_cookie_found = True
-                    if session_cookie and not self.session_cookie_found:
-                        print("Found Session Token!")
-                        # remove the semicolon and '__Secure-next-auth.session-token=' from the string
-                        raw_session_cookie = session_cookie.group(0)
-                        self.session_token = raw_session_cookie.split("=")[1][:-1]
-                        self.session.cookies.set(
-                            "__Secure-next-auth.session-token",
-                            self.session_token,
-                        )
-                        if self.verbose:
-                            print(
-                                self.GREEN
-                                + "Session Token: "
-                                + self.ENDCOLOR
-                                + self.session_token,
-                            )
-                        self.session_cookie_found = True
+                self.session_cookie_found = True
 
-    def __detect_user_agent(self, message):
-        if "params" in message:
-            if "headers" in message["params"]:
-                if "user-agent" in message["params"]["headers"]:
-                    # Use regex to get the cookie for cf_clearance=*;
-                    user_agent = message["params"]["headers"]["user-agent"]
-                    self.user_agent = user_agent
-                    self.agent_found = True
+    def __detect_user_agent(self, message: dict) -> None:
+        if (
+            "params" in message
+            and "headers" in message["params"]
+            and "user-agent" in message["params"]["headers"]
+        ):
+            # Use regex to get the cookie for cf_clearance=*;
+            user_agent = message["params"]["headers"]["user-agent"]
+            self.user_agent = user_agent
+            self.agent_found = True
         self.__refresh_headers(
             cf_clearance=self.cf_clearance,
-            puid_cookie=self.puid_cookie,
             user_agent=self.user_agent,
         )
 
-    def __refresh_headers(self, cf_clearance, puid_cookie, user_agent):
+    def __refresh_headers(self, cf_clearance: str, user_agent: str) -> None:
         del self.session.cookies["cf_clearance"]
-        del self.session.cookies["_puid"]
+        # del self.session.cookies["_puid"]
         self.session.headers.clear()
         self.session.cookies.set("cf_clearance", cf_clearance)
-        self.session.cookies.set("_puid", puid_cookie)
+        # self.session.cookies.set("_puid", puid_cookie)
         self.session.headers.update(
             {
                 "Accept": "text/event-stream",
@@ -733,12 +727,12 @@ class Chatbot:
         :param num: The number of messages to rollback
         :return: None
         """
-        for i in range(num):
+        for _ in range(num):
             self.conversation_id = self.conversation_id_prev_queue.pop()
             self.parent_id = self.parent_id_prev_queue.pop()
 
 
-def get_input(prompt):
+def get_input(prompt: str) -> LiteralString:
     # Display the prompt
     print(prompt, end="")
 
@@ -752,28 +746,17 @@ def get_input(prompt):
             break
         lines.append(line)
 
-    # Join the lines, separated by newlines, and store the result
-    user_input = "\n".join(lines)
-
-    # Return the input
-    return user_input
-
-
-from os import getenv
-from os.path import exists
+    return "\n".join(lines)
 
 
 def configure():
     config_files = ["config.json"]
-    xdg_config_home = getenv("XDG_CONFIG_HOME")
-    if xdg_config_home:
+    if xdg_config_home := getenv("XDG_CONFIG_HOME"):
         config_files.append(f"{xdg_config_home}/revChatGPT/config.json")
-    user_home = getenv("HOME")
-    if user_home:
+    if user_home := getenv("HOME"):
         config_files.append(f"{user_home}/.config/revChatGPT/config.json")
 
-    config_file = next((f for f in config_files if exists(f)), None)
-    if config_file:
+    if config_file := next((f for f in config_files if exists(f)), None):
         with open(config_file, encoding="utf-8") as f:
             config = json.load(f)
     else:
@@ -782,7 +765,7 @@ def configure():
     return config
 
 
-def chatGPT_main(config):
+def chatGPT_main(config: dict) -> None:
     print("Logging in...")
     chatbot = Chatbot(config)
     while True:
@@ -800,18 +783,18 @@ def chatGPT_main(config):
                 """,
                 )
                 continue
-            elif prompt == "!reset":
+            if prompt == "!reset":
                 chatbot.reset_chat()
                 print("Chat session successfully reset.")
                 continue
-            elif prompt == "!refresh":
+            if prompt == "!refresh":
                 chatbot.__refresh_session()
                 print("Session successfully refreshed.\n")
                 continue
-            elif prompt == "!config":
+            if prompt == "!config":
                 print(json.dumps(chatbot.config, indent=4))
                 continue
-            elif prompt.startswith("!rollback"):
+            if prompt.startswith("!rollback"):
                 # Default to 1 rollback if no number is specified
                 try:
                     rollback = int(prompt.split(" ")[1])
@@ -820,14 +803,14 @@ def chatGPT_main(config):
                 chatbot.rollback_conversation(rollback)
                 print(f"Rolled back {rollback} messages.")
                 continue
-            elif prompt.startswith("!setconversation"):
+            if prompt.startswith("!setconversation"):
                 try:
                     chatbot.config["conversation"] = prompt.split(" ")[1]
                     print("Conversation has been changed")
                 except IndexError:
                     print("Please include conversation UUID in command")
                 continue
-            elif prompt == "!exit":
+            if prompt == "!exit":
                 break
         try:
             print("Chatbot: ")
@@ -843,7 +826,7 @@ def chatGPT_main(config):
             continue
 
 
-def main():
+def main() -> None:
     print(
         """
         ChatGPT - A command-line interface to OpenAI's ChatGPT (https://chat.openai.com/chat)
