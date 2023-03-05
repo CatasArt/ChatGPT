@@ -9,7 +9,9 @@ import sys
 import httpx
 import requests
 import tiktoken
-from OpenAIAuth.OpenAIAuth import OpenAIAuth
+from OpenAIAuth import Authenticator as OpenAIAuth
+
+from .utils import create_completer, create_session, get_input
 
 ENCODER = tiktoken.get_encoding("gpt2")
 
@@ -65,16 +67,16 @@ class Conversations:
         """
         if conversation_id not in self.conversations:
             return ""
-        # Build conversation string from messages and check if it's too long
-        conversation = ""
-        for message in self.conversations[conversation_id].messages:
-            conversation += f"{message.author}: {message.text}<|im_sep|>\n\n"
+        conversation = "".join(
+            f"{message.author}: {message.text}<|im_sep|>\n\n"
+            for message in self.conversations[conversation_id].messages
+        )
         if len(ENCODER.encode(conversation)) > 4000 - CONVERSATION_BUFFER:
             self.purge_history(conversation_id)
             return self.get(conversation_id)
         return conversation
 
-    def purge_history(self, conversation_id: str, num: int = 1):
+    def purge_history(self, conversation_id: str, num: int = 1) -> None:
         """
         Remove oldest messages from a conversation
         """
@@ -84,7 +86,7 @@ class Conversations:
             conversation_id
         ].messages[num:]
 
-    def rollback(self, conversation_id: str, num: int = 1):
+    def rollback(self, conversation_id: str, num: int = 1) -> None:
         """
         Remove latest messages from a conversation
         """
@@ -149,9 +151,9 @@ class Chatbot:
         body = self.__get_config()
         body["prompt"] = BASE_PROMPT + conversation + "ChatGPT: "
         body["max_tokens"] = get_max_tokens(conversation)
-        async with httpx.AsyncClient(proxies=self.proxy if self.proxy else None).stream(
+        async with httpx.AsyncClient(proxies=self.proxy or None).stream(
             method="POST",
-            url=PROXY_URL + "/completions",
+            url=f"{PROXY_URL}/completions",
             data=json.dumps(body),
             headers={"Authorization": f"Bearer {self.api_key}"},
             timeout=1080,
@@ -161,7 +163,11 @@ class Chatbot:
                 if response.status_code == 429:
                     print("error: " + "Too many requests")
                     raise Exception("Too many requests")
+<<<<<<< HEAD
                 elif response.status_code == 523:
+=======
+                if response.status_code == 523:
+>>>>>>> 925bef9abdce6232a3ec028c128c81018aad2a10
                     print(
                         "error: "
                         + "Origin is unreachable. Ensure that you are authenticated and are using the correct pricing model.",
@@ -169,14 +175,18 @@ class Chatbot:
                     raise Exception(
                         "Origin is unreachable. Ensure that you are authenticated and are using the correct pricing model.",
                     )
+<<<<<<< HEAD
                 elif response.status_code == 503:
+=======
+                if response.status_code == 503:
+>>>>>>> 925bef9abdce6232a3ec028c128c81018aad2a10
                     print("error: " + "OpenAI error!")
                     raise Exception("OpenAI error!")
-                elif response.status_code != 200:
+                if response.status_code != 200:
                     print("error: " + "Unknown error")
                     raise Exception("Unknown error")
                 line = line.strip()
-                if line == "\n" or line == "":
+                if line in ["\n", ""]:
                     continue
                 if line == "data: [DONE]":
                     break
@@ -225,38 +235,14 @@ class Chatbot:
             self.api_key = auth.access_token
         else:
             auth_request = requests.post(
-                PROXY_URL + "/auth",
+                f"{PROXY_URL}/auth",
                 json={"email": email, "password": password},
                 timeout=10,
             )
             self.api_key = auth_request.json()["accessToken"]
 
 
-def get_input(prompt):
-    """
-    Multi-line input
-    """
-    # Display the prompt
-    print(prompt, end="")
-
-    # Initialize an empty list to store the input lines
-    lines = []
-
-    # Read lines of input until the user enters an empty line
-    while True:
-        line = input()
-        if line == "":
-            break
-        lines.append(line)
-
-    # Join the lines, separated by newlines, and store the result
-    user_input = "\n".join(lines)
-
-    # Return the input
-    return user_input
-
-
-async def main():
+async def main() -> None:
     """
     Testing main function
     """
@@ -352,11 +338,13 @@ async def main():
         return True
 
     try:
+        session = create_session()
+        completer = create_completer(["!help", "!reset", "!rollback", "!exit"])
         while True:
-            prompt = get_input("\nYou:\n")
-            if prompt.startswith("!"):
-                if commands(prompt):
-                    continue
+            prompt = get_input(session=session, completer=completer)
+            if prompt.startswith("!") and commands(prompt):
+                continue
+
             print("ChatGPT:")
             async for line in chatbot.ask(prompt=prompt):
                 result = line["choices"][0]["text"].replace("<|im_end|>", "")
